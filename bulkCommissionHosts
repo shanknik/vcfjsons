@@ -1,0 +1,36 @@
+{
+    "hostsSpec": [
+        {
+            "hostfqdn": "esxi-5.vcflab.shank.com",
+            "username": "root",
+            "storageType": "VSAN",
+            "password": "VMware123!",
+            "networkPoolName": "az2-mgmt-pool",
+            "vVolStorageProtocolType": null
+        },
+        {
+            "hostfqdn": "esxi-6.vcflab.shank.com",
+            "username": "root",
+            "storageType": "VSAN",
+            "password": "VMware123!",
+            "networkPoolName": "az2-mgmt-pool",
+            "vVolStorageProtocolType": null
+        },
+        {
+            "hostfqdn": "esxi-7.vcflab.shank.com",
+            "username": "root",
+            "storageType": "VSAN",
+            "password": "VMware123!",
+            "networkPoolName": "az2-mgmt-pool",
+            "vVolStorageProtocolType": null
+        },
+        {
+            "hostfqdn": "esxi-8.vcflab.shank.com",
+            "username": "root",
+            "storageType": "VSAN",
+            "password": "VMware123!",
+            "networkPoolName": "az2-mgmt-pool",
+            "vVolStorageProtocolType": null
+        }
+    ]
+}
