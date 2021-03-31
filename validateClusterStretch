@@ -1,0 +1,106 @@
+{
+	"clusterUpdateSpec" : {
+    "clusterStretchSpec": {
+        "hostSpecs": [ {
+            "id": "af66dac7-6833-473f-8735-87c401462688",
+            "licenseKey": "454RL-EMDDK-88LR9-0NLRP-GN76X",
+            "hostNetworkSpec": {
+				"vmNics": [{
+						"id": "vmnic0",
+						"vdsName": "dc-m01-cl01-vds01"
+					},
+					{
+						"id": "vmnic1",
+						"vdsName": "dc-m01-cl01-vds02"
+					},
+					{
+						"id": "vmnic2",
+						"vdsName": "dc-m01-cl01-vds01"
+					},
+					{
+						"id": "vmnic3",
+						"vdsName": "dc-m01-cl01-vds02"
+						}
+					]
+				}
+			},
+			{ 
+            "id": "77e89404-6db5-406a-b7ec-206867ae9f3d",
+            "licenseKey": "454RL-EMDDK-88LR9-0NLRP-GN76X",
+            "hostNetworkSpec": {
+					"vmNics": [{
+						"id": "vmnic0",
+						"vdsName": "dc-m01-cl01-vds01"
+					},
+					{
+						"id": "vmnic1",
+						"vdsName": "dc-m01-cl01-vds02"
+					},
+					{
+						"id": "vmnic2",
+						"vdsName": "dc-m01-cl01-vds01"
+					},
+					{
+						"id": "vmnic3",
+						"vdsName": "dc-m01-cl01-vds02"
+						}
+					]
+				}
+			},
+			{
+            "id": "7021237a-d946-4c36-a1eb-27f1eb8f719c",
+            "licenseKey": "454RL-EMDDK-88LR9-0NLRP-GN76X",
+            "hostNetworkSpec": {
+				"vmNics": [{
+						"id": "vmnic0",
+						"vdsName": "dc-m01-cl01-vds01"
+					},
+					{
+						"id": "vmnic1",
+						"vdsName": "dc-m01-cl01-vds02"
+					},
+					{
+						"id": "vmnic2",
+						"vdsName": "dc-m01-cl01-vds01"
+					},
+					{
+						"id": "vmnic3",
+						"vdsName": "dc-m01-cl01-vds02"
+						}
+					]
+				}
+			},
+			{
+            "id": "dd04ae37-4e27-4195-bedf-5f6ebadbf7c9",
+            "licenseKey": "454RL-EMDDK-88LR9-0NLRP-GN76X",
+            "hostNetworkSpec": {
+				"vmNics": [{
+						"id": "vmnic0",
+						"vdsName": "dc-m01-cl01-vds01"
+					},
+					{
+						"id": "vmnic1",
+						"vdsName": "dc-m01-cl01-vds02"
+					},
+					{
+						"id": "vmnic2",
+						"vdsName": "dc-m01-cl01-vds01"
+					},
+					{
+						"id": "vmnic3",
+						"vdsName": "dc-m01-cl01-vds02"
+						}
+					]
+				}
+			}
+		],
+		"secondaryAzOverlayVlanId": 2007,
+		"isEdgeClusterConfiguredForMultiAZ":true,
+        "witnessSpec": {
+            "fqdn": "vsan-witness.shank.com",
+            "vsanCidr": "192.168.63.0/24",
+            "vsanIp": "192.168.63.9"
+        }
+    }
+}
+}
