@@ -1,0 +1,261 @@
+{
+    "subscriptionLicensing": false,
+  "skipEsxThumbprintValidation": false,
+  "managementPoolName": "sfo-m01-np01",
+  "sddcManagerSpec": {
+    "secondUserCredentials": {
+      "username": "vcf",
+      "password": ""
+    },
+    "ipAddress": "172.16.11.59",
+    "netmask": "255.255.255.0",
+    "hostname": "sfo-vcf01",
+    "rootUserCredentials": {
+      "username": "root",
+      "password": ""
+    },
+    "localUserPassword": "",
+    "vcenterId": "vcenter-1"
+  },
+  "sddcId": "sfo-m01",
+  "esxLicense": "",
+  "taskName": "workflowconfig/workflowspec-ems.json",
+  "ceipEnabled": false,
+  "fipsEnabled": false,
+  "ntpServers": ["172.16.11.253"],
+  "dnsSpec": {
+    "subdomain": "sfo.rainpole.io",
+    "domain": "sfo.rainpole.io",
+    "nameserver": "172.16.11.4"
+  },
+  "networkSpecs": [
+    {
+      "networkType": "MANAGEMENT",
+      "subnet": "172.16.11.0/24",
+      "gateway": "172.16.11.253",
+      "vlanId": "1611",
+      "mtu": "1500",
+      "portGroupKey": "sfo01-m01-cl01-vds01-pg-mgmt",
+      "standbyUplinks":[],
+      "activeUplinks":[
+        "uplink1",
+        "uplink2"
+      ]
+    },
+    {
+      "networkType": "VMOTION",
+      "subnet": "172.16.12.0/24",
+      "gateway": "172.16.12.253",
+      "vlanId": "1612",
+      "mtu": "9000",
+      "portGroupKey": "sfo01-m01-cl01-vds01-pg-vmotion",
+      "association": "sfo-m01-dc01",
+      "includeIpAddressRanges": [{"endIpAddress": "172.16.12.104", "startIpAddress": "172.16.12.101"}],
+      "standbyUplinks":[],
+      "activeUplinks":[
+        "uplink1",
+        "uplink2"
+      ]
+    },
+    {
+      "networkType": "VSAN",
+      "subnet": "172.16.13.0/24",
+      "gateway": "172.16.13.253",
+      "vlanId": "1613",
+      "mtu": "9000",
+      "portGroupKey": "sfo01-m01-cl01-vds01-pg-vsan",
+      "includeIpAddressRanges": [{"endIpAddress": "172.16.13.104", "startIpAddress": "172.16.13.101"}],
+      "standbyUplinks":[],
+      "activeUplinks":[
+        "uplink1",
+        "uplink2"
+      ]
+    }
+  ],
+  "nsxtSpec":
+  {
+    "nsxtManagerSize": "medium",
+    "nsxtManagers": [
+      {
+          "hostname": "sfo-m01-nsx01a",
+          "ip": "172.16.11.66"
+      },
+      {
+          "hostname": "sfo-m01-nsx01b",
+          "ip": "172.16.11.67"
+      },
+      {
+          "hostname": "sfo-m01-nsx01c",
+          "ip": "172.16.11.68"
+      }
+    ],
+    "rootNsxtManagerPassword": "",
+    "nsxtAdminPassword": "",
+    "nsxtAuditPassword": "",
+    "rootLoginEnabledForNsxtManager": "true",
+    "sshEnabledForNsxtManager": "true",
+    "overLayTransportZone": {
+        "zoneName": "sfo-m01-tz-overlay01",
+        "networkName": "netName-overlay"
+    },
+    "vlanTransportZone": {
+        "zoneName": "",
+        "networkName": "netName-vlan"
+    },
+    "vip": "172.16.11.65",
+    "vipFqdn": "sfo-m01-nsx01",
+    "nsxtLicense": "",
+    "transportVlanId": 1614
+  },
+  "vsanSpec": {
+      "vsanName": "vsan-1",
+      "vsanDedup": "false",
+      "datastoreName": "sfo-m01-cl01-ds-vsan01"
+  },
+  "dvsSpecs": [
+    {
+      "dvsName": "sfo-m01-cl01-vds01",
+      "vcenterId":"vcenter-1",
+      "vmnics": [
+        "vmnic0",
+        "vmnic1"
+      ],
+      "mtu": 9000,
+      "networks":[
+        "MANAGEMENT",
+        "VMOTION",
+        "VSAN"
+      ],
+      "niocSpecs":[
+        {
+          "trafficType":"VSAN",
+          "value":"HIGH"
+        },
+        {
+          "trafficType":"VMOTION",
+          "value":"LOW"
+        },
+        {
+          "trafficType":"VDP",
+          "value":"LOW"
+        },
+        {
+          "trafficType":"VIRTUALMACHINE",
+          "value":"HIGH"
+        },
+        {
+          "trafficType":"MANAGEMENT",
+          "value":"NORMAL"
+        },
+        {
+          "trafficType":"NFS",
+          "value":"LOW"
+        },
+        {
+          "trafficType":"HBR",
+          "value":"LOW"
+        },
+        {
+          "trafficType":"FAULTTOLERANCE",
+          "value":"LOW"
+        },
+        {
+          "trafficType":"ISCSI",
+          "value":"LOW"
+        }
+      ],
+      "isUsedByNsxt": true
+    }
+  ],
+  "clusterSpec":
+  {
+    "clusterName": "sfo-m01-cl01",
+    "vcenterName": "vcenter-1",
+    "clusterEvcMode": "",
+    "vmFolders": {
+      "MANAGEMENT": "sfo-m01-fd-mgmt",
+      "NETWORKING": "sfo-m01-fd-nsx",
+      "EDGENODES": "sfo-m01-fd-edge"
+    }
+  },
+  "pscSpecs": [
+    {
+      "pscId": "psc-1",
+      "vcenterId": "vcenter-1",
+      "adminUserSsoPassword": "",
+      "pscSsoSpec": {
+        "ssoDomain": "vsphere.local"
+      }
+    }
+  ],
+  "vcenterSpec": {
+      "vcenterIp": "172.16.11.62",
+      "vcenterHostname": "sfo-m01-vc01",
+      "vcenterId": "vcenter-1",
+      "vmSize": "small",
+      "storageSize": "",
+      "rootVcenterPassword": ""
+  },
+  "hostSpecs": [
+    {
+      "association": "sfo-m01-dc01",
+      "ipAddressPrivate": {
+        "ipAddress": "172.16.11.101"
+      },
+      "hostname": "sfo01-m01-esx01",
+      "credentials": {
+        "username": "root",
+        "password": ""
+      },
+      "sshThumbprint": "",
+      "sslThumbprint": "",
+      "vSwitch": "vSwitch0",
+      "serverId": "host-1"
+    },
+    {
+      "association": "sfo-m01-dc01",
+      "ipAddressPrivate": {
+        "ipAddress": "172.16.11.102"
+      },
+      "hostname": "sfo01-m01-esx02",
+      "credentials": {
+        "username": "root",
+        "password": ""
+      },
+      "sshThumbprint": "",
+      "sslThumbprint": "",
+      "vSwitch": "vSwitch0",
+      "serverId": "host-2"
+    },
+    {
+      "association": "sfo-m01-dc01",
+      "ipAddressPrivate": {
+        "ipAddress": "172.16.11.103"
+      },
+      "hostname": "sfo01-m01-esx03",
+      "credentials": {
+        "username": "root",
+        "password": ""
+      },
+      "sshThumbprint": "",
+      "sslThumbprint": "",
+      "vSwitch": "vSwitch0",
+      "serverId": "host-3"
+    },
+    {
+      "association": "sfo-m01-dc01",
+      "ipAddressPrivate": {
+        "ipAddress": "172.16.11.104"
+      },
+      "hostname": "sfo01-m01-esx04",
+      "credentials": {
+        "username": "root",
+        "password": ""
+      },
+      "sshThumbprint": "",
+      "sslThumbprint": "",
+      "vSwitch": "vSwitch0",
+      "serverId": "host-4"
+    }
+  ],
+  "excludedComponents": ["AVN", "EBGP"]
