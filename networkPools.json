@@ -1,0 +1,27 @@
+{
+	    "name" : "shank-lan-wld1",
+	    "networks" : [ {
+	        "type" : "VMOTION",
+	        "vlanId" : 11,
+	        "mtu" : 8940,
+	        "subnet" : "10.0.1.0",
+	        "mask" : "255.255.255.0",
+	        "gateway" : "10.0.1.1",
+	        "ipPools" : [ {
+	        "start" : "10.0.1.120",
+	        "end" : "10.0.1.130"
+	        }]
+	    },
+	        {
+	        "type" : "VSAN",
+	        "vlanId" : 12,
+	        "mtu" : 8940,
+	        "subnet" : "10.0.2.0",
+	        "mask" : "255.255.255.0",
+	        "gateway" : "10.0.2.1",
+	        "ipPools" : [ {
+	        "start" : "10.0.2.120",
+	        "end" : "10.0.2.130"
+	        } ]
+	    }]
+	}
