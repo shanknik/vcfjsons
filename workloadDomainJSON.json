@@ -1,0 +1,142 @@
+{
+  "domainName": "wld1",
+  "vcenterSpec": {
+    "name": "wldvc",
+    "networkDetailsSpec": {
+      "ipAddress": "10.0.0.102",
+      "dnsName": "wldvc.region1.shank.com",
+      "gateway": "10.0.0.1",
+      "subnetMask": "255.255.255.0"
+    },
+    "rootPassword": "P@ssw0rd123!",
+    "datacenterName": "dc1",
+    "vmSize": "small"
+  },
+  "computeSpec": {
+    "clusterSpecs": [
+      {
+        "name": "wld-cl1",
+        "hostSpecs": [
+          {
+            "id": "f9260997-0778-43b3-8b15-65f5daf6492e",
+            "licenseKey": "xxxxx",
+            "hostNetworkSpec": {
+              "vmNics": [
+                {
+                  "id": "vmnic0",
+                  "vdsName": "vds01"
+                },
+                {
+                  "id": "vmnic1",
+                  "vdsName": "vds01"
+                }
+              ]
+            }
+          },
+          {
+            "id": "56f36e28-275b-4927-b13c-9438b0383aec",
+            "licenseKey": "xxxxxxx",
+            "hostNetworkSpec": {
+              "vmNics": [
+                {
+                  "id": "vmnic0",
+                  "vdsName": "vds01"
+                },
+                {
+                  "id": "vmnic1",
+                  "vdsName": "vds01"
+                }
+              ]
+            }
+          },
+          {
+            "id": "88cfec6d-b300-49c1-a3f0-beb65dea8286",
+            "licenseKey": "xxxxx",
+            "hostNetworkSpec": {
+              "vmNics": [
+                {
+                  "id": "vmnic0",
+                  "vdsName": "vds01"
+                },
+                {
+                  "id": "vmnic1",
+                  "vdsName": "vds01"
+                }
+              ]
+            }
+          }
+        ],
+        "datastoreSpec": {
+          "vsanDatastoreSpec": {
+            "failuresToTolerate": 1,
+            "licenseKey": "xxxxxxx",
+            "datastoreName": "vsan01"
+          }
+        },
+        "networkSpec": {
+          "vdsSpecs": [
+            {
+              "name": "vds01",
+              "isUsedByNsxt": true,
+              "portGroupSpecs": [
+                {
+                  "name": "pg-mgmt",
+                  "transportType": "MANAGEMENT"
+                },
+                {
+                  "name": "pg-vmotion",
+                  "transportType": "VMOTION"
+                },
+                {
+                  "name": "pg-vsan",
+                  "transportType": "VSAN"
+                }
+              ]
+            }
+          ],
+          "nsxClusterSpec": {
+            "nsxTClusterSpec": {
+              "geneveVlanId": 16
+            }
+          }
+        }
+      }
+    ]
+  },
+  "nsxTSpec": {
+    "nsxManagerSpecs": [
+      {
+        "name": "wldnsx1",
+        "networkDetailsSpec": {
+          "ipAddress": "10.0.0.163",
+          "dnsName": "wldnsx1.region1.shank.com",
+          "gateway": "10.0.0.1",
+          "subnetMask": "255.255.255.0"
+        }
+      },
+      {
+        "name": "wldnsx2",
+        "networkDetailsSpec": {
+          "ipAddress": "10.0.0.164",
+          "dnsName": "wldnsx2.region1.shank.com",
+          "gateway": "10.0.0.1",
+          "subnetMask": "255.255.255.0"
+        }
+      },
+      {
+        "name": "wldnsx3",
+        "networkDetailsSpec": {
+          "ipAddress": "10.0.0.165",
+          "dnsName": "wldnsx3.region1.shank.com",
+          "gateway": "10.0.0.1",
+          "subnetMask": "255.255.255.0"
+        }
+      }
+    ],
+    "vip": "10.0.0.162",
+    "vipFqdn": "wldnsx.region1.shank.com",
+    "licenseKey": "xxxxxx",
+    "nsxManagerAdminPassword": "P@ssw0rd123!",
+    "formFactor": "small"
+  }
+}
