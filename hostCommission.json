@@ -1,0 +1,24 @@
+[{
+            "fqdn": "wldhost1.region1.shank.com",
+            "username": "root",
+            "password": "P@ssw0rd123!",
+            "storageType": "VSAN",
+            "networkPoolId": "afee251a-fb84-477d-98bc-503566a0d6ab",
+            "networkPoolName": "shank-lan-wld1"
+},        
+		{
+            "fqdn": "wldhost2.region1.shank.com",
+            "username": "root",
+            "password": "P@ssw0rd123!",
+            "storageType": "VSAN",
+            "networkPoolId": "afee251a-fb84-477d-98bc-503566a0d6ab",
+            "networkPoolName": "shank-lan-wld1"
+},       
+		{
+            "fqdn": "wldhost3.region1.shank.com",
+            "username": "root",
+            "password": "P@ssw0rd123!",
+            "storageType": "VSAN",
+            "networkPoolId": "afee251a-fb84-477d-98bc-503566a0d6ab",
+            "networkPoolName": "shank-lan-wld1"
+        }]
