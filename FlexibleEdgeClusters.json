@@ -1,0 +1,36 @@
+{
+    "edgeAdminPassword": "VMware1!VMware1!",
+    "edgeAuditPassword": "VMware1!VMware1!",
+    "edgeClusterName": "rwar",
+    "edgeClusterProfileType": "DEFAULT",
+    "edgeClusterType": "NSX-T",
+    "edgeFormFactor": "MEDIUM",
+    "edgeNodeSpecs": [
+        {
+            "clusterId": "2fd3c6ca-c90b-4ebb-b984-33f707247513",
+            "edgeNodeName": "test1.region1.shank.com",
+            "edgeTep1IP": "10.0.5.9/24",
+            "edgeTep2IP": "10.0.5.10/24",
+            "edgeTepGateway": "10.0.5.1",
+            "interRackCluster": false,
+            "edgeTepVlan": 15,
+            "managementGateway": "10.0.0.1",
+            "managementIP": "10.0.0.145/24"
+        },
+        {
+            "clusterId": "2fd3c6ca-c90b-4ebb-b984-33f707247513",
+            "edgeNodeName": "test2.region1.shank.com",
+            "edgeTep1IP": "10.0.5.11/24",
+            "edgeTep2IP": "10.0.5.12/24",
+            "edgeTepGateway": "10.0.5.1",
+                  "interRackCluster": false,
+            "edgeTepVlan": 15,
+            "managementGateway": "10.0.0.1",
+            "managementIP": "10.0.0.146/24"
+        }
+    ],
+    "edgeRootPassword": "VMware1!VMware1!",
+    "mtu": 9000
+}
+
+## Change all properties to suit and ensure the cluster ID is correct
