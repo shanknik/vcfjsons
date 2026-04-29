@@ -3,10 +3,11 @@
 # Covers:
 #   1. Prerequisite checks (PowerCLI, Posh-SSH)
 #   2. NTP configuration & verification
-#   3. vSwitch0 MTU set to 9000
-#   4. Certificate CN check - regenerate & reboot only if needed
-#   5. Parallel reboot wait & post-reboot cert verification
-#   6. Final summary table
+#   3. DNS configuration & verification
+#   4. vSwitch0 MTU set to 9000
+#   5. Certificate CN check - regenerate & reboot only if needed
+#   6. Parallel reboot wait & post-reboot cert verification
+#   7. Final summary table
 #
 # Standalone hosts - No vCenter required
 # ESXi 9.x | PowerCLI 13+ | Posh-SSH required
@@ -86,8 +87,20 @@ if ($acceptKeySwitch) {
     Write-Host "    [+] Using -AcceptKey true (bool)" -ForegroundColor Green
 }
 
+Set-PowerCLIConfiguration -Scope Session -ParticipateInCEIP $false -Confirm:$false | Out-Null
+Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP $false -Confirm:$false | Out-Null
 Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out-Null
-Write-Host "[+] PowerCLI certificate action set to Ignore`n" -ForegroundColor Green
+Write-Host "[+] PowerCLI configured`n" -ForegroundColor Green
+
+# ============================================================
+# HELPER - Extract CN using [regex]::Match (safe in all scopes)
+# ============================================================
+function Get-CertCN {
+    param([string]$SubjectString)
+    $m = [regex]::Match($SubjectString, "CN\s*=\s*([^\s,/]+)")
+    if ($m.Success) { return $m.Groups[1].Value.Trim() }
+    return $null
+}
 
 # ============================================================
 # HELPER - SSH runner
@@ -101,9 +114,9 @@ function Invoke-ESXiSSH {
         [string[]]$Commands
     )
 
-    $cred    = New-Object System.Management.Automation.PSCredential(
-                   $User,
-                   ($Pass | ConvertTo-SecureString -AsPlainText -Force))
+    $cred = New-Object System.Management.Automation.PSCredential(
+                $User,
+                ($Pass | ConvertTo-SecureString -AsPlainText -Force))
 
     $session = $null
     switch ($Style) {
@@ -227,6 +240,12 @@ foreach ($hostIP in $ESXiHosts) {
         Restart-VMHostService -HostService $svc -Confirm:$false | Out-Null
         Write-Host "  [+] NTP configured" -ForegroundColor Green
 
+        # ---- DNS ----
+        Write-Host "`n  [*] Configuring DNS..." -ForegroundColor Cyan
+        $network = Get-VMHostNetwork -VMHost $hostIP
+        Set-VMHostNetwork -Network $network -DnsAddress $ExpectedDnsServers | Out-Null
+        Write-Host "  [+] DNS set to: $($ExpectedDnsServers -join ', ')" -ForegroundColor Green
+
         # ---- MTU ----
         Write-Host "`n  [*] Setting vSwitch0 MTU to $TargetMtu..." -ForegroundColor Cyan
         $vSwitch = Get-VirtualSwitch -VMHost $hostIP -Name "vSwitch0" -ErrorAction Stop
@@ -249,14 +268,12 @@ foreach ($hostIP in $ESXiHosts) {
                         -Style $script:SSHAcceptKeyStyle -Commands @(
             "hostname",
             "openssl x509 -in /etc/vmware/ssl/rui.crt -noout -subject",
-            "openssl s_client -connect 127.0.0.1:443 </dev/null 2>/dev/null | openssl x509 -noout -subject"
+            "echo Q | openssl s_client -connect 127.0.0.1:443 2>/dev/null > /tmp/live_cert.pem; sleep 3; openssl x509 -in /tmp/live_cert.pem -noout -subject 2>/dev/null; rm -f /tmp/live_cert.pem"
         )
 
         $configuredHostname = $certInfo[0].Output.Trim()
-        $diskCertCN         = $null
-        $liveCertCN         = $null
-        if ($certInfo[1].Output -match "CN\s*=\s*([^\s,/]+)") { $diskCertCN = $Matches[1].Trim() }
-        if ($certInfo[2].Output -match "CN\s*=\s*([^\s,/]+)") { $liveCertCN = $Matches[1].Trim() }
+        $diskCertCN         = Get-CertCN -SubjectString $certInfo[1].Output
+        $liveCertCN         = Get-CertCN -SubjectString $certInfo[2].Output
 
         $row["Hostname"]      = $configuredHostname
         $row["Disk Cert CN"]  = if ($diskCertCN) { $diskCertCN } else { "Parse error" }
@@ -294,8 +311,7 @@ foreach ($hostIP in $ESXiHosts) {
                 "openssl x509 -in /etc/vmware/ssl/rui.crt -noout -subject"
             )
 
-            $newDiskCN = $null
-            if ($regen[3].Output -match "CN\s*=\s*([^\s,/]+)") { $newDiskCN = $Matches[1].Trim() }
+            $newDiskCN = Get-CertCN -SubjectString $regen[3].Output
             Write-Host "  [i] New disk cert CN    : $newDiskCN" -ForegroundColor DarkGray
 
             if ($newDiskCN -eq $configuredHostname) {
@@ -362,7 +378,7 @@ foreach ($hostIP in $ESXiHosts) {
 }
 
 # ============================================================
-# SEND ALL REBOOTS FIRST - then wait in parallel
+# SEND ALL REBOOTS FIRST
 # ============================================================
 if ($rebootNeeded.Count -gt 0) {
 
@@ -382,15 +398,17 @@ if ($rebootNeeded.Count -gt 0) {
         }
         catch {
             Write-Warning "  [!] Could not reboot $hostIP : $_"
-            $targetRow = $results | Where-Object { $_.Host -eq $hostIP }
-            $targetRow."Cert Action" = "Reboot command failed - manual reboot needed"
-            $targetRow."Overall"     = "FAIL"
+            $idx = $null
+            for ($i = 0; $i -lt $results.Count; $i++) {
+                if ($results[$i].Host -eq $hostIP) { $idx = $i; break }
+            }
+            if ($null -ne $idx) {
+                $results[$idx]."Cert Action" = "Reboot command failed - manual reboot needed"
+                $results[$idx]."Overall"     = "FAIL"
+            }
         }
     }
 
-    # ============================================================
-    # PARALLEL WAIT & POST-REBOOT VERIFY
-    # ============================================================
     Write-Host "`n========================================" -ForegroundColor Yellow
     Write-Host "   Waiting for All Hosts in Parallel" -ForegroundColor Yellow
     Write-Host "========================================`n" -ForegroundColor Yellow
@@ -409,6 +427,14 @@ if ($rebootNeeded.Count -gt 0) {
         )
 
         $log = [System.Collections.ArrayList]@()
+
+        # CN parser - must be defined inside job as jobs dont inherit parent functions
+        function ParseCN {
+            param([string]$SubjectString)
+            $m = [regex]::Match($SubjectString, "CN\s*=\s*([^\s,/]+)")
+            if ($m.Success) { return $m.Groups[1].Value.Trim() }
+            return $null
+        }
 
         # ---- Wait offline ----
         $log.Add("  [$HostIP] Waiting to go offline...") | Out-Null
@@ -452,55 +478,78 @@ if ($rebootNeeded.Count -gt 0) {
             }
         }
 
-        # ---- Post-reboot cert verification ----
+        # ---- Post-reboot cert verification via SSH only ----
         try {
             Import-Module Posh-SSH -ErrorAction Stop
-            Import-Module VMware.VimAutomation.Core -ErrorAction SilentlyContinue | Out-Null
-            Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out-Null
 
-            # Enable SSH via PowerCLI
-            Connect-VIServer -Server $HostIP -User $ESXiUser -Password $ESXiPass -ErrorAction Stop | Out-Null
-            $sshSvc        = Get-VMHostService -VMHost $HostIP | Where-Object { $_.Key -eq "TSM-SSH" }
-            $sshWasRunning = [bool]$sshSvc.Running
-            if (-not $sshWasRunning) {
-                Start-VMHostService -HostService $sshSvc -Confirm:$false | Out-Null
-                Start-Sleep -Seconds 5
+            $cred        = New-Object System.Management.Automation.PSCredential(
+                               $ESXiUser,
+                               ($ESXiPass | ConvertTo-SecureString -AsPlainText -Force))
+
+            # SSH with retry
+            $session     = $null
+            $sshTries    = 0
+            $maxSshTries = 10
+            while (-not $session -and $sshTries -lt $maxSshTries) {
+                try {
+                    switch ($SSHStyle) {
+                        "AcceptKey"     { $session = New-SSHSession -ComputerName $HostIP -Credential $cred -AcceptKey -ErrorAction Stop }
+                        "Force"         { $session = New-SSHSession -ComputerName $HostIP -Credential $cred -Force -ErrorAction Stop }
+                        "AcceptKeyBool" { $session = New-SSHSession -ComputerName $HostIP -Credential $cred -AcceptKey $true -ErrorAction Stop }
+                    }
+                    if ($session) {
+                        $log.Add("  [$HostIP] [+] SSH connected post-reboot") | Out-Null
+                    }
+                } catch {
+                    $sshTries++
+                    $log.Add("  [$HostIP] [i] SSH not ready, retrying in 15s ($sshTries/$maxSshTries)...") | Out-Null
+                    Start-Sleep -Seconds 15
+                }
             }
-            Disconnect-VIServer -Server $HostIP -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 
-            # SSH - check disk and live cert
-            $cred    = New-Object System.Management.Automation.PSCredential(
-                           $ESXiUser,
-                           ($ESXiPass | ConvertTo-SecureString -AsPlainText -Force))
-            $session = $null
-            switch ($SSHStyle) {
-                "AcceptKey"     { $session = New-SSHSession -ComputerName $HostIP -Credential $cred -AcceptKey -ErrorAction Stop }
-                "Force"         { $session = New-SSHSession -ComputerName $HostIP -Credential $cred -Force -ErrorAction Stop }
-                "AcceptKeyBool" { $session = New-SSHSession -ComputerName $HostIP -Credential $cred -AcceptKey $true -ErrorAction Stop }
+            if (-not $session) { throw "SSH could not connect after $maxSshTries attempts" }
+
+            # Read disk cert
+            $diskResult = Invoke-SSHCommand -SessionId $session.SessionId `
+                              -Command "openssl x509 -in /etc/vmware/ssl/rui.crt -noout -subject" `
+                              -TimeOut 30
+            $log.Add("  [$HostIP] [i] Disk cert raw : $($diskResult.Output)") | Out-Null
+
+            # Dump live cert with retry - port 443 may not be fully ready
+            $liveCertRaw  = ""
+            $liveTries    = 0
+            $maxLiveTries = 5
+            while ([string]::IsNullOrWhiteSpace($liveCertRaw) -and $liveTries -lt $maxLiveTries) {
+                $liveTries++
+                Invoke-SSHCommand -SessionId $session.SessionId `
+                    -Command "echo Q | openssl s_client -connect 127.0.0.1:443 2>/dev/null > /tmp/live_cert.pem; sleep 3" `
+                    -TimeOut 45 | Out-Null
+
+                $liveResult  = Invoke-SSHCommand -SessionId $session.SessionId `
+                                   -Command "openssl x509 -in /tmp/live_cert.pem -noout -subject 2>/dev/null" `
+                                   -TimeOut 30
+                $liveCertRaw = $liveResult.Output.Trim()
+
+                if ([string]::IsNullOrWhiteSpace($liveCertRaw)) {
+                    $log.Add("  [$HostIP] [i] Live cert empty, retrying in 15s ($liveTries/$maxLiveTries)...") | Out-Null
+                    Start-Sleep -Seconds 15
+                }
             }
 
-            if (-not $session) { throw "SSH session could not be established" }
+            Invoke-SSHCommand -SessionId $session.SessionId `
+                -Command "rm -f /tmp/live_cert.pem" -TimeOut 10 | Out-Null
 
-            $diskResult = Invoke-SSHCommand -SessionId $session.SessionId -Command "openssl x509 -in /etc/vmware/ssl/rui.crt -noout -subject" -TimeOut 30
-            $liveResult = Invoke-SSHCommand -SessionId $session.SessionId -Command "openssl s_client -connect 127.0.0.1:443 </dev/null 2>/dev/null | openssl x509 -noout -subject" -TimeOut 30
             Remove-SSHSession -SessionId $session.SessionId | Out-Null
 
-            $postDiskCN = $null
-            $postLiveCN = $null
-            if ($diskResult.Output -match "CN\s*=\s*([^\s,/]+)") { $postDiskCN = $Matches[1].Trim() }
-            if ($liveResult.Output -match "CN\s*=\s*([^\s,/]+)") { $postLiveCN = $Matches[1].Trim() }
+            $log.Add("  [$HostIP] [i] Live cert raw : $liveCertRaw") | Out-Null
+
+            # Parse CNs using [regex]::Match - $Matches unreliable in job scope
+            $postDiskCN = ParseCN -SubjectString $diskResult.Output
+            $postLiveCN = ParseCN -SubjectString $liveCertRaw
 
             $log.Add("  [$HostIP] [i] Post-reboot disk CN : $postDiskCN") | Out-Null
             $log.Add("  [$HostIP] [i] Post-reboot live CN : $postLiveCN") | Out-Null
             $log.Add("  [$HostIP] [i] Expected            : $ExpectedHostname") | Out-Null
-
-            # Restore SSH
-            if (-not $sshWasRunning) {
-                Connect-VIServer -Server $HostIP -User $ESXiUser -Password $ESXiPass -ErrorAction SilentlyContinue | Out-Null
-                $sshSvc = Get-VMHostService -VMHost $HostIP | Where-Object { $_.Key -eq "TSM-SSH" }
-                Stop-VMHostService -HostService $sshSvc -Confirm:$false | Out-Null
-                Disconnect-VIServer -Server $HostIP -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-            }
 
             if ($postLiveCN -eq $ExpectedHostname) {
                 $log.Add("  [$HostIP] [+] Live cert CN confirmed correct on port 443") | Out-Null
@@ -546,10 +595,14 @@ if ($rebootNeeded.Count -gt 0) {
     # Launch all jobs simultaneously
     $jobs = @()
     foreach ($hostIP in $rebootSent) {
-        $targetRow        = $results | Where-Object { $_.Host -eq $hostIP }
-        $expectedHostname = $targetRow.Hostname
+        $idx = $null
+        for ($i = 0; $i -lt $results.Count; $i++) {
+            if ($results[$i].Host -eq $hostIP) { $idx = $i; break }
+        }
+        $expectedHostname = if ($null -ne $idx) { $results[$idx].Hostname } else { $hostIP }
+
         Write-Host "[*] Launching parallel wait job: $hostIP" -ForegroundColor Cyan
-        $job   = Start-Job -ScriptBlock $jobScript -ArgumentList @(
+        $job = Start-Job -ScriptBlock $jobScript -ArgumentList @(
             $hostIP,
             $ESXiUser,
             $ESXiPass,
@@ -562,7 +615,6 @@ if ($rebootNeeded.Count -gt 0) {
     Write-Host "`n[*] All $($jobs.Count) reboot jobs running in parallel..." -ForegroundColor Yellow
     Write-Host "[*] Polling every 15 seconds for completion...`n" -ForegroundColor Yellow
 
-    # Poll until all done
     while ($jobs | Where-Object { $_.Job.State -eq "Running" }) {
         $running  = ($jobs | Where-Object { $_.Job.State -eq "Running" }).Count
         $complete = ($jobs | Where-Object { $_.Job.State -ne "Running" }).Count
@@ -572,30 +624,38 @@ if ($rebootNeeded.Count -gt 0) {
 
     Write-Host "`n[+] All hosts completed. Collecting results...`n" -ForegroundColor Green
 
-    # Collect results and update main results array
+    # ---- Collect using index - Where-Object returns a copy not a reference ----
     foreach ($jobEntry in $jobs) {
         $jobResult = Receive-Job -Job $jobEntry.Job
         Remove-Job  -Job $jobEntry.Job
 
-        # Print job log
         $jobResult.Log | ForEach-Object { Write-Host $_ -ForegroundColor DarkGray }
 
-        $targetRow = $results | Where-Object { $_.Host -eq $jobEntry.HostIP }
-        $targetRow."Disk Cert CN"  = $jobResult.DiskCertCN
-        $targetRow."Live Cert CN"  = $jobResult.LiveCertCN
-        $targetRow."Cert Match"    = $jobResult.CertMatch
-        $targetRow."Cert Action"   = $jobResult.CertAction
-        $targetRow."Reboot Needed" = $jobResult.RebootNeeded
+        $idx = $null
+        for ($i = 0; $i -lt $results.Count; $i++) {
+            if ($results[$i].Host -eq $jobEntry.HostIP) { $idx = $i; break }
+        }
+
+        if ($null -eq $idx) {
+            Write-Warning "[!] Could not find result row for $($jobEntry.HostIP)"
+            continue
+        }
+
+        $results[$idx]."Disk Cert CN"  = $jobResult.DiskCertCN
+        $results[$idx]."Live Cert CN"  = $jobResult.LiveCertCN
+        $results[$idx]."Cert Match"    = $jobResult.CertMatch
+        $results[$idx]."Cert Action"   = $jobResult.CertAction
+        $results[$idx]."Reboot Needed" = $jobResult.RebootNeeded
 
         if ($jobResult.Overall -eq "PASS") {
-            $ntpOk  = $targetRow."NTP OK"      -eq "PASS"
-            $autoOk = $targetRow."Auto-Start"  -eq "PASS"
-            $svcOk  = $targetRow."Svc Running" -eq "PASS"
-            $dnsOk  = $targetRow."DNS OK"      -eq "PASS"
-            $mtuOk  = $targetRow."MTU OK"      -eq "PASS"
-            $targetRow."Overall" = if ($ntpOk -and $autoOk -and $svcOk -and $dnsOk -and $mtuOk) { "PASS" } else { "FAIL" }
+            $ntpOk  = $results[$idx]."NTP OK"      -eq "PASS"
+            $autoOk = $results[$idx]."Auto-Start"  -eq "PASS"
+            $svcOk  = $results[$idx]."Svc Running" -eq "PASS"
+            $dnsOk  = $results[$idx]."DNS OK"      -eq "PASS"
+            $mtuOk  = $results[$idx]."MTU OK"      -eq "PASS"
+            $results[$idx]."Overall" = if ($ntpOk -and $autoOk -and $svcOk -and $dnsOk -and $mtuOk) { "PASS" } else { "FAIL" }
         } else {
-            $targetRow."Overall" = $jobResult.Overall
+            $results[$idx]."Overall" = $jobResult.Overall
         }
     }
 }
@@ -612,8 +672,8 @@ $results | Format-Table -AutoSize
 Write-Host "`n--- Cert Detail ---" -ForegroundColor Cyan
 $results | Select-Object Host, Hostname, "Disk Cert CN", "Live Cert CN", "Cert Match", "Cert Action", "Reboot Needed", Overall | Format-Table -AutoSize
 
-$pass = ($results | Where-Object { $_.Overall -eq "PASS" }).Count
-$fail = ($results | Where-Object { $_.Overall -ne "PASS" }).Count
+$pass = @($results | Where-Object { $_.Overall -eq "PASS" }).Count
+$fail = @($results | Where-Object { $_.Overall -ne "PASS" }).Count
 
 Write-Host "----------------------------------------"
 Write-Host "Total Hosts   : $($results.Count)"
