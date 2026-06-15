@@ -1,16 +1,17 @@
 # ============================================================
 # ESXi VCF Pre-Commission Host Preparation Script
 # Covers:
-#   1. Prerequisite checks (PowerCLI, Posh-SSH)
-#   2. NTP configuration & verification
-#   3. DNS configuration & verification
-#   4. vSwitch0 MTU set to 9000
-#   5. Certificate CN check - regenerate & reboot only if needed
-#   6. Parallel reboot wait & post-reboot cert verification
-#   7. Final summary table
+#   1. Prerequisite checks (PowerCLI, Posh-SSH 3.0+ enforced)
+#   2. Posh-SSH known hosts wipe (clean slate for re-imaged hosts)
+#   3. NTP configuration & verification
+#   4. DNS configuration & verification
+#   5. vSwitch0 MTU set to 9000
+#   6. Certificate CN check - regenerate & reboot only if needed
+#   7. Parallel reboot wait & post-reboot cert verification
+#   8. Final summary table
 #
 # Standalone hosts - No vCenter required
-# ESXi 9.x | PowerCLI 13+ | Posh-SSH required
+# ESXi 9.x | PowerCLI 13+ | Posh-SSH 3.0+ required
 # Run PowerShell as Administrator for module installation
 # Save as UTF-8 with BOM in VS Code before running
 # ============================================================
@@ -56,19 +57,43 @@ if (-not (Get-Module -Name VMware.VimAutomation.Core -ErrorAction SilentlyContin
     Import-Module VMware.VimAutomation.Core -ErrorAction SilentlyContinue | Out-Null
 }
 
-Write-Host "[*] Checking Posh-SSH..." -ForegroundColor Yellow
-$poshSSH = Get-Module -ListAvailable -Name Posh-SSH -ErrorAction SilentlyContinue
+# ============================================================
+# POSH-SSH - Enforce minimum version 3.0 for ESXi 9 kex compat
+# ============================================================
+Write-Host "[*] Checking Posh-SSH (minimum v3.0 required for ESXi 9 cipher suite)..." -ForegroundColor Yellow
+$poshSSH = Get-Module -ListAvailable -Name Posh-SSH | Sort-Object Version -Descending | Select-Object -First 1
 if (-not $poshSSH) {
     Write-Host "    Posh-SSH not found - installing..." -ForegroundColor DarkGray
     Install-Module -Name Posh-SSH -Force -Scope CurrentUser | Out-Null
     Write-Host "    [+] Posh-SSH installed" -ForegroundColor Green
+} elseif ($poshSSH.Version -lt [Version]"3.0") {
+    Write-Host "    [!] Posh-SSH $($poshSSH.Version) is below 3.0 - upgrading for ESXi 9 kex compatibility..." -ForegroundColor Yellow
+    Update-Module -Name Posh-SSH -Force -ErrorAction SilentlyContinue
+    # Re-check after update
+    $poshSSH = Get-Module -ListAvailable -Name Posh-SSH | Sort-Object Version -Descending | Select-Object -First 1
+    Write-Host "    [+] Posh-SSH now at v$($poshSSH.Version)" -ForegroundColor Green
 } else {
-    Write-Host "    [+] Posh-SSH OK (v$($poshSSH[0].Version))" -ForegroundColor Green
+    Write-Host "    [+] Posh-SSH OK (v$($poshSSH.Version))" -ForegroundColor Green
 }
 
 if (-not (Get-Module -Name Posh-SSH -ErrorAction SilentlyContinue)) {
     Write-Host "    Importing Posh-SSH..." -ForegroundColor DarkGray
     Import-Module Posh-SSH -ErrorAction Stop
+}
+
+# ============================================================
+# POSH-SSH KNOWN HOSTS - Wipe on every run
+# Re-imaged hosts present new host keys; stale cache causes
+# "key exchange negotiation failed" before auth even starts.
+# This is separate from Windows ~/.ssh/known_hosts.
+# ============================================================
+Write-Host "[*] Clearing Posh-SSH known hosts store (clean slate for re-imaged hosts)..." -ForegroundColor Yellow
+$poshSSHHostsFile = "$env:USERPROFILE\.poshssh\hosts.json"
+if (Test-Path $poshSSHHostsFile) {
+    Remove-Item $poshSSHHostsFile -Force
+    Write-Host "    [+] Cleared: $poshSSHHostsFile" -ForegroundColor Green
+} else {
+    Write-Host "    [i] No Posh-SSH hosts file found - already clean" -ForegroundColor DarkGray
 }
 
 Write-Host "[*] Detecting Posh-SSH AcceptKey parameter syntax..." -ForegroundColor Yellow
@@ -103,7 +128,27 @@ function Get-CertCN {
 }
 
 # ============================================================
+# HELPER - Remove this host from Posh-SSH trusted store
+# Must be called before every New-SSHSession on a host.
+# Handles re-imaged hosts where cached key no longer matches.
+# ============================================================
+function Clear-SSHTrustedHost {
+    param([string]$HostIP)
+    try {
+        $trusted = Get-SSHTrustedHost -ErrorAction SilentlyContinue |
+                   Where-Object { $_.HostName -eq $HostIP -or $_.HostName -eq $HostIP.ToLower() }
+        if ($trusted) {
+            $trusted | Remove-SSHTrustedHost -ErrorAction SilentlyContinue
+            Write-Host "    [+] Removed stale Posh-SSH trusted key for $HostIP" -ForegroundColor DarkGray
+        }
+    } catch {
+        # Silently ignore - key may not exist or cmdlets differ by version
+    }
+}
+
+# ============================================================
 # HELPER - SSH runner
+# Clears trusted host entry before every connection attempt.
 # ============================================================
 function Invoke-ESXiSSH {
     param(
@@ -113,6 +158,9 @@ function Invoke-ESXiSSH {
         [string]$Style,
         [string[]]$Commands
     )
+
+    # Clean slate - remove any cached host key for this IP before connecting
+    Clear-SSHTrustedHost -HostIP $HostIP
 
     $cred = New-Object System.Management.Automation.PSCredential(
                 $User,
@@ -331,8 +379,18 @@ foreach ($hostIP in $ESXiHosts) {
             }
         }
 
-        # Restore SSH
-        if (-not $sshWasRunning) {
+        # SSH post-reboot handling:
+        # If a reboot is needed, leave SSH ENABLED with policy ON so it survives the restart.
+        # The job script polls port 22 directly to know when SSH is actually ready.
+        # If no reboot is needed, restore SSH to its original state.
+        if ($rebootNeeded -contains $hostIP) {
+            $sshSvc = Get-VMHostService -VMHost $hostIP | Where-Object { $_.Key -eq "TSM-SSH" }
+            Set-VMHostService -HostService $sshSvc -Policy "on" | Out-Null
+            if (-not $sshSvc.Running) {
+                Start-VMHostService -HostService $sshSvc -Confirm:$false | Out-Null
+            }
+            Write-Host "  [+] SSH left ENABLED (policy: on) - required for post-reboot cert verification" -ForegroundColor DarkGray
+        } elseif (-not $sshWasRunning) {
             $sshSvc = Get-VMHostService -VMHost $hostIP | Where-Object { $_.Key -eq "TSM-SSH" }
             Stop-VMHostService -HostService $sshSvc -Confirm:$false | Out-Null
             Write-Host "  [+] SSH disabled (restored)" -ForegroundColor DarkGray
@@ -422,13 +480,12 @@ if ($rebootNeeded.Count -gt 0) {
             [string]$SSHStyle,
             [int]$OfflineTimeoutSec = 120,
             [int]$OnlineTimeoutSec  = 600,
-            [int]$PollIntervalSec   = 10,
-            [int]$ServiceWarmupSec  = 60
+            [int]$PollIntervalSec   = 10
         )
 
         $log = [System.Collections.ArrayList]@()
 
-        # CN parser - must be defined inside job as jobs dont inherit parent functions
+        # CN parser - must be defined inside job as jobs don't inherit parent functions
         function ParseCN {
             param([string]$SubjectString)
             $m = [regex]::Match($SubjectString, "CN\s*=\s*([^\s,/]+)")
@@ -449,20 +506,50 @@ if ($rebootNeeded.Count -gt 0) {
             $log.Add("  [$HostIP] [i] Still online... ($elapsed/$OfflineTimeoutSec sec)") | Out-Null
         }
 
-        # ---- Wait online ----
-        $log.Add("  [$HostIP] Waiting to come back online...") | Out-Null
+        # ---- Wait online (ICMP) ----
+        $log.Add("  [$HostIP] Waiting to come back online (ICMP)...") | Out-Null
         $elapsed  = 0
         $isOnline = $false
         while ($elapsed -lt $OnlineTimeoutSec) {
             Start-Sleep -Seconds $PollIntervalSec
             $elapsed += $PollIntervalSec
             if (Test-Connection -ComputerName $HostIP -Count 1 -Quiet -ErrorAction SilentlyContinue) {
-                $log.Add("  [$HostIP] [+] Online after $elapsed sec - waiting ${ServiceWarmupSec}s for services...") | Out-Null
-                Start-Sleep -Seconds $ServiceWarmupSec
+                $log.Add("  [$HostIP] [+] Responding to ping after $elapsed sec") | Out-Null
                 $isOnline = $true
                 break
             }
             $log.Add("  [$HostIP] [i] Still offline... ($elapsed/$OnlineTimeoutSec sec)") | Out-Null
+        }
+
+        # ---- Wait for SSH port 22 to accept TCP connections ----
+        # ICMP responding does not mean SSH is ready. Poll port 22 directly
+        # with a short timeout per attempt rather than sleeping blind.
+        if ($isOnline) {
+            $log.Add("  [$HostIP] Waiting for SSH port 22 to accept connections...") | Out-Null
+            $sshReady    = $false
+            $sshPortWait = 0
+            $sshPortMax  = 300   # max 5 min waiting for port 22 after ping responds
+            while ($sshPortWait -lt $sshPortMax) {
+                try {
+                    $tcpClient = New-Object System.Net.Sockets.TcpClient
+                    $connect   = $tcpClient.BeginConnect($HostIP, 22, $null, $null)
+                    $waited    = $connect.AsyncWaitHandle.WaitOne(3000, $false)
+                    if ($waited -and $tcpClient.Connected) {
+                        $tcpClient.Close()
+                        $log.Add("  [$HostIP] [+] Port 22 accepting connections ($sshPortWait sec post-ping)") | Out-Null
+                        $sshReady = $true
+                        break
+                    }
+                    $tcpClient.Close()
+                } catch {}
+                Start-Sleep -Seconds 5
+                $sshPortWait += 5
+                $log.Add("  [$HostIP] [i] Port 22 not ready yet... ($sshPortWait/${sshPortMax}s)") | Out-Null
+            }
+            if (-not $sshReady) {
+                $log.Add("  [$HostIP] [!] Port 22 never opened - SSH may not be enabled post-reboot") | Out-Null
+                $isOnline = $false
+            }
         }
 
         if (-not $isOnline) {
@@ -471,7 +558,7 @@ if ($rebootNeeded.Count -gt 0) {
                 DiskCertCN   = "N/A"
                 LiveCertCN   = "N/A"
                 CertMatch    = "FAIL"
-                CertAction   = "Reboot timeout - manual check needed"
+                CertAction   = "Reboot timeout or SSH port 22 never opened - manual check needed"
                 RebootNeeded = "Timed out"
                 Overall      = "FAIL"
                 Log          = $log
@@ -482,11 +569,25 @@ if ($rebootNeeded.Count -gt 0) {
         try {
             Import-Module Posh-SSH -ErrorAction Stop
 
-            $cred        = New-Object System.Management.Automation.PSCredential(
-                               $ESXiUser,
-                               ($ESXiPass | ConvertTo-SecureString -AsPlainText -Force))
+            $cred = New-Object System.Management.Automation.PSCredential(
+                        $ESXiUser,
+                        ($ESXiPass | ConvertTo-SecureString -AsPlainText -Force))
 
-            # SSH with retry
+            # ---- Clean slate: remove stale trusted host entry inside job scope ----
+            # Jobs inherit the on-disk hosts.json at launch time; the host key changed
+            # post-reimage so we must clear it here too, not just at script start.
+            try {
+                $trusted = Get-SSHTrustedHost -ErrorAction SilentlyContinue |
+                           Where-Object { $_.HostName -eq $HostIP -or $_.HostName -eq $HostIP.ToLower() }
+                if ($trusted) {
+                    $trusted | Remove-SSHTrustedHost -ErrorAction SilentlyContinue
+                    $log.Add("  [$HostIP] [+] Cleared stale Posh-SSH trusted key (job scope)") | Out-Null
+                }
+            } catch {
+                # Silently ignore
+            }
+
+            # SSH with retry - port 22 may not be ready immediately post-reboot
             $session     = $null
             $sshTries    = 0
             $maxSshTries = 10
@@ -502,7 +603,13 @@ if ($rebootNeeded.Count -gt 0) {
                     }
                 } catch {
                     $sshTries++
-                    $log.Add("  [$HostIP] [i] SSH not ready, retrying in 15s ($sshTries/$maxSshTries)...") | Out-Null
+                    # On retry: clear trusted host again in case a partial key was cached
+                    try {
+                        Get-SSHTrustedHost -ErrorAction SilentlyContinue |
+                            Where-Object { $_.HostName -eq $HostIP -or $_.HostName -eq $HostIP.ToLower() } |
+                            Remove-SSHTrustedHost -ErrorAction SilentlyContinue
+                    } catch {}
+                    $log.Add("  [$HostIP] [i] SSH not ready, retrying in 15s ($sshTries/$maxSshTries) - Error: $($_.Exception.Message)") | Out-Null
                     Start-Sleep -Seconds 15
                 }
             }
@@ -543,7 +650,6 @@ if ($rebootNeeded.Count -gt 0) {
 
             $log.Add("  [$HostIP] [i] Live cert raw : $liveCertRaw") | Out-Null
 
-            # Parse CNs using [regex]::Match - $Matches unreliable in job scope
             $postDiskCN = ParseCN -SubjectString $diskResult.Output
             $postLiveCN = ParseCN -SubjectString $liveCertRaw
 
@@ -624,7 +730,6 @@ if ($rebootNeeded.Count -gt 0) {
 
     Write-Host "`n[+] All hosts completed. Collecting results...`n" -ForegroundColor Green
 
-    # ---- Collect using index - Where-Object returns a copy not a reference ----
     foreach ($jobEntry in $jobs) {
         $jobResult = Receive-Job -Job $jobEntry.Job
         Remove-Job  -Job $jobEntry.Job
